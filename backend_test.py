@@ -440,14 +440,433 @@ def main():
         print(f"  {Colors.INFO} Total hours: {passport.get('total_hours')}")
     
     # ========================================================================
-    # 13. OTHER ENDPOINTS
+    # 13. PHASE 3: REQUEST HUB (intake)
     # ========================================================================
-    print("\n[13] Other Endpoints")
+    print("\n[13] PHASE 3: Request Hub (Intake)")
+    print("-" * 80)
+    
+    # Get templates
+    success, templates = tester.test("GET /api/requests/templates", "GET", "requests/templates", 200, critical=True)
+    if success:
+        lanes = templates.get("lanes", [])
+        print(f"  {Colors.INFO} Lanes: {len(lanes)}")
+        lane_keys = [l.get("key") for l in lanes]
+        if set(lane_keys) == {"EVENT", "IT_SAAS", "FACILITIES", "CLASSROOM_LAB"}:
+            print(f"  {Colors.PASS} All 4 lanes present: {lane_keys}")
+        else:
+            print(f"  {Colors.WARN} Expected 4 lanes, got: {lane_keys}")
+    
+    # Preview request (missing fields)
+    success, preview = tester.test(
+        "POST /api/requests/preview (missing fields)",
+        "POST",
+        "requests/preview",
+        200,
+        {
+            "lane": "EVENT",
+            "title": "Founder Day gala AV",
+            "raw_text": "need AV for Founder Day event"
+        },
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.INFO} Missing fields: {preview.get('missing_fields')}")
+        print(f"  {Colors.INFO} Duplicate suggestions: {len(preview.get('duplicate_suggestions', []))}")
+        if "budget estimate" in preview.get("missing_fields", []):
+            print(f"  {Colors.PASS} Budget missing detected")
+        if any("Founder" in d for d in preview.get("duplicate_suggestions", [])):
+            print(f"  {Colors.PASS} Duplicate Founder Day case detected")
+    
+    # Create request (incomplete -> NEEDS_INFO)
+    success, req1 = tester.test(
+        "POST /api/requests (incomplete -> NEEDS_INFO)",
+        "POST",
+        "requests",
+        200,
+        {
+            "lane": "EVENT",
+            "title": "Test incomplete request",
+            "raw_text": "need something"
+        }
+    )
+    if success:
+        case = req1.get("case", {})
+        if case.get("state") == "NEEDS_INFO":
+            print(f"  {Colors.PASS} Incomplete request -> NEEDS_INFO")
+        print(f"  {Colors.INFO} Case ID: {case.get('id')}")
+    
+    # Create request (complete -> TRIAGED)
+    success, req2 = tester.test(
+        "POST /api/requests (complete -> TRIAGED)",
+        "POST",
+        "requests",
+        200,
+        {
+            "lane": "EVENT",
+            "title": "Complete event request",
+            "raw_text": "need AV for event",
+            "budget_amount": 5000,
+            "needed_by": "2026-10-15",
+            "location": "Blackburn Center"
+        }
+    )
+    if success:
+        case = req2.get("case", {})
+        if case.get("state") == "TRIAGED":
+            print(f"  {Colors.PASS} Complete request -> TRIAGED")
+        print(f"  {Colors.INFO} Case ID: {case.get('id')}")
+    
+    # ========================================================================
+    # 14. PHASE 3: MEETING (consent gate)
+    # ========================================================================
+    print("\n[14] PHASE 3: Meeting (Consent Gate)")
+    print("-" * 80)
+    
+    # Propose meeting
+    success, meeting = tester.test(
+        "POST /api/cases/case_founderday/meeting/propose",
+        "POST",
+        "cases/case_founderday/meeting/propose",
+        200,
+        critical=True
+    )
+    if success:
+        windows = meeting.get("windows", [])
+        print(f"  {Colors.INFO} Windows proposed: {len(windows)}")
+        if len(windows) == 3:
+            print(f"  {Colors.PASS} 3 windows returned")
+    
+    # Send without consent (should fail)
+    success, resp = tester.test(
+        "POST /api/cases/case_founderday/meeting/send (no consent -> 422)",
+        "POST",
+        "cases/case_founderday/meeting/send",
+        422,
+        {"window_id": "w1", "send_authorized": False},
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.PASS} Consent gate correctly enforced")
+    
+    # Send with consent
+    success, sent = tester.test(
+        "POST /api/cases/case_founderday/meeting/send (with consent -> 200)",
+        "POST",
+        "cases/case_founderday/meeting/send",
+        200,
+        {"window_id": "w1", "send_authorized": True},
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.INFO} Invite ID: {sent.get('invite_id')}")
+        if sent.get("invite_id"):
+            print(f"  {Colors.PASS} Meeting sent with invite ID")
+    
+    # ========================================================================
+    # 15. PHASE 3: CONTRACT
+    # ========================================================================
+    print("\n[15] PHASE 3: Contract")
+    print("-" * 80)
+    
+    success, contract = tester.test(
+        "GET /api/cases/case_founderday/contract",
+        "GET",
+        "cases/case_founderday/contract",
+        200,
+        critical=True
+    )
+    if success:
+        clauses = contract.get("clauses", [])
+        print(f"  {Colors.INFO} Clauses: {len(clauses)}")
+        if len(clauses) == 5:
+            print(f"  {Colors.PASS} 5 clauses returned")
+        statuses = [c.get("status") for c in clauses]
+        expected = {"acceptable", "deviation", "missing", "legal_review"}
+        if expected.issubset(set(statuses)):
+            print(f"  {Colors.PASS} All expected clause statuses present")
+    
+    # ========================================================================
+    # 16. PHASE 3: BUY/MAKE/REPAIR
+    # ========================================================================
+    print("\n[16] PHASE 3: Buy/Make/Repair")
+    print("-" * 80)
+    
+    success, bmr = tester.test(
+        "GET /api/cases/case_hvac/bmr",
+        "GET",
+        "cases/case_hvac/bmr",
+        200,
+        critical=True
+    )
+    if success:
+        if "buy" in bmr and "repair" in bmr and "microfactory" in bmr:
+            print(f"  {Colors.PASS} All 3 options present (buy, repair, microfactory)")
+            print(f"  {Colors.INFO} Buy: ${bmr['buy']['cost']}")
+            print(f"  {Colors.INFO} Repair: ${bmr['repair']['cost']}")
+            print(f"  {Colors.INFO} Microfactory: ${bmr['microfactory']['cost']}")
+    
+    # ========================================================================
+    # 17. PHASE 3: ORDER -> LOGISTICS LIFECYCLE
+    # ========================================================================
+    print("\n[17] PHASE 3: Order -> Logistics Lifecycle")
+    print("-" * 80)
+    
+    # Reset and jump to APPROVED
+    tester.test("POST /api/demo/reset", "POST", "demo/reset", 200)
+    tester.test("POST /api/demo/jump to APPROVED", "POST", "demo/jump", 200, {"case_id": "case_founderday", "state": "APPROVED"})
+    
+    # Order
+    tester.impersonate("u_operator")
+    success, order = tester.test(
+        "POST /api/cases/case_founderday/order",
+        "POST",
+        "cases/case_founderday/order",
+        200,
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.INFO} PO ref: {order.get('po_ref')}")
+        if order.get("state") == "ORDERED":
+            print(f"  {Colors.PASS} Case transitioned to ORDERED")
+    
+    # Ship advance
+    success, ship = tester.test(
+        "POST /api/cases/case_founderday/ship/advance",
+        "POST",
+        "cases/case_founderday/ship/advance",
+        200,
+        critical=True
+    )
+    if success:
+        if ship.get("state") == "IN_TRANSIT":
+            print(f"  {Colors.PASS} Case transitioned to IN_TRANSIT")
+    
+    # Receive without checklist (should fail)
+    success, resp = tester.test(
+        "POST /api/cases/case_founderday/receive (no checklist -> 422)",
+        "POST",
+        "cases/case_founderday/receive",
+        422,
+        {"checklist_confirmed": False},
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.PASS} Receiving checklist gate enforced")
+    
+    # Receive with checklist
+    success, receive = tester.test(
+        "POST /api/cases/case_founderday/receive (with checklist -> 200)",
+        "POST",
+        "cases/case_founderday/receive",
+        200,
+        {"checklist_confirmed": True},
+        critical=True
+    )
+    if success:
+        if receive.get("state") == "RECEIVED":
+            print(f"  {Colors.PASS} Case transitioned to RECEIVED")
+        print(f"  {Colors.INFO} Evidence: {receive.get('evidence')}")
+    
+    # Close
+    success, close = tester.test(
+        "POST /api/cases/case_founderday/close",
+        "POST",
+        "cases/case_founderday/close",
+        200,
+        critical=True
+    )
+    if success:
+        if close.get("state") == "CLOSED":
+            print(f"  {Colors.PASS} Case transitioned to CLOSED")
+    
+    # ========================================================================
+    # 18. PHASE 3: OVERRIDE
+    # ========================================================================
+    print("\n[18] PHASE 3: Override")
+    print("-" * 80)
+    
+    # Reset
+    tester.test("POST /api/demo/reset", "POST", "demo/reset", 200)
+    
+    # Override without required fields (should fail)
+    success, resp = tester.test(
+        "POST /api/cases/case_founderday/override (missing fields -> 422)",
+        "POST",
+        "cases/case_founderday/override",
+        422,
+        {"reason": "Emergency"},
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.PASS} Override validation enforced")
+    
+    # Override with all fields
+    success, override = tester.test(
+        "POST /api/cases/case_founderday/override (complete -> 200)",
+        "POST",
+        "cases/case_founderday/override",
+        200,
+        {
+            "reason": "Emergency procurement for safety",
+            "policy_id": "policy-v3#4.2",
+            "expiry": "2026-10-01"
+        },
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.INFO} Override ID: {override.get('id')}")
+        if override.get("id"):
+            print(f"  {Colors.PASS} Override recorded")
+    
+    # ========================================================================
+    # 19. PHASE 3: DELEGATION
+    # ========================================================================
+    print("\n[19] PHASE 3: Delegation")
+    print("-" * 80)
+    
+    # Reset to get fresh approvals
+    tester.test("POST /api/demo/reset", "POST", "demo/reset", 200)
+    
+    # Get approval ID
+    success, approvals = tester.test("GET /api/approvals?case_id=case_founderday", "GET", "approvals?case_id=case_founderday", 200)
+    if success and approvals:
+        appr_id = approvals[0].get("id")
+        
+        # Delegate
+        success, delegate = tester.test(
+            "POST /api/approvals/{id}/delegate",
+            "POST",
+            f"approvals/{appr_id}/delegate",
+            200,
+            {
+                "to_actor_id": "u_executive",
+                "expiry": "2026-10-01"
+            },
+            critical=True
+        )
+        if success:
+            print(f"  {Colors.INFO} Delegated to: {delegate.get('delegated_to')}")
+            if delegate.get("delegated_to"):
+                print(f"  {Colors.PASS} Delegation succeeded")
+    
+    # ========================================================================
+    # 20. PHASE 3: FLOW REPLAY
+    # ========================================================================
+    print("\n[20] PHASE 3: Flow Replay")
+    print("-" * 80)
+    
+    # Get flows
+    success, flows = tester.test("GET /api/flows", "GET", "flows", 200)
+    if success and flows:
+        flow_id = flows[0].get("id")
+        initial_runs = flows[0].get("runs", 0)
+        
+        # Replay
+        success, replay = tester.test(
+            "POST /api/flows/{id}/replay",
+            "POST",
+            f"flows/{flow_id}/replay",
+            200,
+            critical=True
+        )
+        if success:
+            print(f"  {Colors.INFO} Flow: {flow_id}")
+            print(f"  {Colors.INFO} Runs: {replay.get('runs')} (was {initial_runs})")
+            if replay.get("runs") == initial_runs + 1:
+                print(f"  {Colors.PASS} Replay incremented runs")
+            if replay.get("status") == "OK":
+                print(f"  {Colors.PASS} Replay status OK")
+    
+    # ========================================================================
+    # 21. PHASE 3: OFFLINE CONFLICT RESOLVE
+    # ========================================================================
+    print("\n[21] PHASE 3: Offline Conflict Resolve")
+    print("-" * 80)
+    
+    # Inject offline_pending exception
+    success, exc = tester.test(
+        "POST /api/demo/exception (offline_pending)",
+        "POST",
+        "demo/exception",
+        200,
+        {"key": "offline_pending", "case_id": "case_founderday"}
+    )
+    
+    # Get outbox items
+    success, queue = tester.test("GET /api/offline/queue", "GET", "offline/queue", 200)
+    if success:
+        items = queue.get("queue", [])
+        if items:
+            item_id = items[0].get("id")
+            
+            # Resolve conflict
+            success, resolve = tester.test(
+                "POST /api/offline/resolve/{id}",
+                "POST",
+                f"offline/resolve/{item_id}",
+                200,
+                {"resolution": "refresh_and_apply"},
+                critical=True
+            )
+            if success:
+                print(f"  {Colors.INFO} Item ID: {item_id}")
+                print(f"  {Colors.INFO} Status: {resolve.get('status')}")
+                if resolve.get("status") == "APPLIED":
+                    print(f"  {Colors.PASS} Conflict resolved")
+    
+    # ========================================================================
+    # 22. PHASE 3: REGRESSION CHECKS
+    # ========================================================================
+    print("\n[22] PHASE 3: Regression Checks")
+    print("-" * 80)
+    
+    # Reset
+    tester.test("POST /api/demo/reset", "POST", "demo/reset", 200)
+    
+    # SoD still enforced
+    tester.impersonate("u_requester")
+    success, resp = tester.test(
+        "REGRESSION: SoD still enforced (requester self-approve -> 422)",
+        "POST",
+        "approvals/appr_fac/decide",
+        422,
+        {"decision": "APPROVED", "rationale": "Test"}
+    )
+    if success:
+        print(f"  {Colors.PASS} SoD regression check passed")
+    
+    # Audit chain still valid
+    success, audit = tester.test("GET /api/demo/audit", "GET", "demo/audit", 200)
+    if success:
+        if audit.get("chain_valid"):
+            print(f"  {Colors.PASS} Audit chain regression check passed")
+    
+    # Student learning attestation still supervisor-gated
+    success, tasks = tester.test("GET /api/student/tasks", "GET", "student/tasks", 200)
+    if success and tasks:
+        task_id = tasks[0].get("id")
+        tester.impersonate("u_student")
+        tester.test("POST /api/student/tasks/accept", "POST", "student/tasks/accept", 200, {"task_id": task_id})
+        tester.test("POST /api/student/tasks/quiz", "POST", "student/tasks/quiz", 200, {"task_id": task_id, "answers": [2, 1, 1]})
+        
+        success, resp = tester.test(
+            "REGRESSION: Student attestation still supervisor-gated (422)",
+            "POST",
+            "student/tasks/attest",
+            422,
+            {"task_id": task_id, "level": "Proficient", "hours": 2.0}
+        )
+        if success:
+            print(f"  {Colors.PASS} Learning loop regression check passed")
+    
+    # ========================================================================
+    # 23. OTHER ENDPOINTS
+    # ========================================================================
+    print("\n[23] Other Endpoints")
     print("-" * 80)
     tester.test("GET /api/campus-memory", "GET", "campus-memory", 200)
     tester.test("GET /api/campus-memory?q=policy", "GET", "campus-memory?q=policy", 200)
     tester.test("GET /api/impact", "GET", "impact", 200)
-    tester.test("GET /api/flows", "GET", "flows", 200)
     tester.test("GET /api/notifications", "GET", "notifications", 200)
     tester.test("GET /api/operator/views", "GET", "operator/views", 200)
     tester.test("GET /api/operator/view/my_queue", "GET", "operator/view/my_queue", 200)

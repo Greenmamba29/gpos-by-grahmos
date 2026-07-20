@@ -35,7 +35,7 @@ PROJ = {"_id": 0}
 async def do_seed():
     cols = SEED.all_collections()
     for name in list(cols.keys()) + ["audit_events", "session", "outbox",
-                                      "flow_runs", "exceptions"]:
+                                      "flow_runs", "exceptions", "meetings", "overrides"]:
         await db[name].delete_many({})
     for name, docs in cols.items():
         if docs:
@@ -747,6 +747,318 @@ async def agents_run(body: AgentRun):
                             "case_id": body.case_id, "agent": body.agent,
                             "mode": provenance["mode"]})
     return {"proposal": seeded, "provenance": provenance}
+
+
+# ==========================================================================
+# PHASE 3 \u2014 Request Hub (intake), case lifecycle, governance depth
+# ==========================================================================
+LANE_TEMPLATES = {
+    "EVENT": {"label": "Event Procurement", "icon": "calendar",
+              "questions": ["Event date", "Expected attendees", "Venue / location",
+                            "Budget estimate", "Dietary / accessibility needs", "Delivery window"],
+              "why": "Events are date-bound and multi-stakeholder \u2014 these drive risk & approvals."},
+    "IT_SAAS": {"label": "IT & SaaS", "icon": "monitor",
+                "questions": ["Tool / software name", "Number of seats", "Annual budget",
+                              "Data sensitivity", "Existing similar tools?"],
+                "why": "IT spend is high and duplicated \u2014 we check for existing tools & renewals."},
+    "FACILITIES": {"label": "Facilities & Microfactory", "icon": "wrench",
+                   "questions": ["Part / equipment", "Building / room", "Failure symptom",
+                                 "Budget estimate", "Safety-critical?"],
+                   "why": "Facilities requests weigh repair vs buy vs local fabrication."},
+    "CLASSROOM_LAB": {"label": "Classroom & Low-Risk Lab", "icon": "flask",
+                      "questions": ["Item", "Quantity", "Standard / spec (e.g. ANSI)",
+                                    "Budget estimate", "Needed by"],
+                      "why": "High-volume, standardized items \u2014 great for bulk quotes."},
+}
+
+
+@api.get("/requests/templates")
+async def request_templates():
+    return {"lanes": [{"key": k, **v} for k, v in LANE_TEMPLATES.items()]}
+
+
+class CreateRequest(BaseModel):
+    lane: str
+    title: str
+    raw_text: str
+    budget_amount: Optional[float] = None
+    needed_by: Optional[str] = None
+    location: Optional[str] = None
+    quantity: Optional[str] = None
+
+
+@api.post("/requests/preview")
+async def request_preview(body: CreateRequest):
+    """Intake normalization + duplicate-demand + existing-contract detection (no invention)."""
+    missing = []
+    tmpl = LANE_TEMPLATES.get(body.lane, {})
+    if body.budget_amount is None:
+        missing.append("budget estimate")
+    if not body.needed_by:
+        missing.append("needed-by date")
+    if body.lane == "EVENT" and not body.location:
+        missing.append("venue / location")
+    # duplicate-demand detection (deterministic: same lane, similar words)
+    existing = await db.cases.find({"lane": body.lane}, PROJ).to_list(100)
+    words = set(body.title.lower().split())
+    dupes = [c["title"] for c in existing
+             if len(words & set(c["title"].lower().split())) >= 2]
+    # existing-contract suggestion
+    contracts = await db.campus_memory.find({"collection": "Contracts"}, PROJ).to_list(50)
+    contract_hits = [c["title"] for c in contracts
+                     if any(w in c["title"].lower() or w in c["body"].lower()
+                            for w in words if len(w) > 3)]
+    return {"category": body.lane, "risk": "MEDIUM" if body.lane in ("EVENT", "FACILITIES", "IT_SAAS") else "LOW",
+            "missing_fields": missing, "duplicate_suggestions": dupes,
+            "existing_contracts": contract_hits, "template": tmpl}
+
+
+@api.post("/requests")
+async def create_request(body: CreateRequest):
+    actor, _ = await current_actor()
+    preview = await request_preview(body)
+    cid = new_id("case")
+    state = "NEEDS_INFO" if preview["missing_fields"] else "TRIAGED"
+    case = {"id": cid, "title": body.title, "lane": body.lane, "category": body.lane,
+            "state": state, "risk": preview["risk"], "amount": body.budget_amount or 0,
+            "currency": "USD", "requester_id": actor["id"], "owner_id": "u_operator",
+            "sourcers": ["u_operator"], "policy_version": "policy-v3",
+            "sla_due": None, "needed_by": body.needed_by, "created_at": now_iso(),
+            "channel": "Web", "is_golden": False,
+            "request": {"raw": body.raw_text, "category": body.lane, "risk": preview["risk"],
+                        "normalized": {"budget_amount": body.budget_amount, "currency": "USD",
+                                       "needed_by": body.needed_by, "location": body.location,
+                                       "quantity_items": [{"item": body.quantity or "items", "qty": 1}]},
+                        "missing_fields": preview["missing_fields"], "risk_flags": []}}
+    await db.cases.insert_one(dict(case))
+    await append_audit(db, {"type": "REQUEST_CREATED", "actor": actor["id"], "case_id": cid,
+                            "note": f"Intake normalized \u2014 {state}", "channel": "Web"})
+    if preview["missing_fields"]:
+        await append_audit(db, {"type": "NEEDS_INFO", "actor": "Grahmos Assist", "case_id": cid,
+                                "note": "Missing material facts \u2014 sourcing not started",
+                                "missing": preview["missing_fields"]})
+    case.pop("_id", None)
+    return {"case": case, "preview": preview}
+
+
+# ---- Meeting (F06): propose windows, consent gate before send ----
+MEETING_WINDOWS = [
+    {"id": "w1", "start": "2026-09-22T14:00:00Z", "label": "Mon Sep 22, 10:00 AM EDT"},
+    {"id": "w2", "start": "2026-09-23T18:00:00Z", "label": "Tue Sep 23, 2:00 PM EDT"},
+    {"id": "w3", "start": "2026-09-24T13:30:00Z", "label": "Wed Sep 24, 9:30 AM EDT"},
+]
+
+
+@api.get("/cases/{case_id}/meeting")
+async def get_meeting(case_id: str):
+    m = await db.meetings.find_one({"case_id": case_id}, PROJ)
+    return m or {"case_id": case_id, "status": "NONE", "windows": [], "sent": False}
+
+
+@api.post("/cases/{case_id}/meeting/propose")
+async def propose_meeting(case_id: str):
+    m = {"id": new_id("mtg"), "case_id": case_id, "status": "PROPOSED",
+         "windows": MEETING_WINDOWS, "sent": False, "invite_id": None,
+         "agenda": "Supplier clarification: catering capacity, delivery window, COI.",
+         "ts": now_iso()}
+    await db.meetings.update_one({"case_id": case_id}, {"$set": m}, upsert=True)
+    await append_audit(db, {"type": "MEETING_PROPOSED", "actor": "Grahmos Assist",
+                            "case_id": case_id, "note": "3 windows proposed (timezone-aware)"})
+    m.pop("_id", None)
+    return m
+
+
+class MeetingSend(BaseModel):
+    window_id: str
+    send_authorized: bool = False
+
+
+@api.post("/cases/{case_id}/meeting/send")
+async def send_meeting(case_id: str, body: MeetingSend):
+    if not body.send_authorized:
+        raise HTTPException(422, "Consent required: send_authorized must be true before inviting.")
+    actor, _ = await current_actor()
+    invite = "invite_" + new_id("x").split("_")[1]
+    await db.meetings.update_one({"case_id": case_id}, {"$set": {
+        "status": "SENT", "sent": True, "invite_id": invite, "chosen_window": body.window_id}})
+    await append_audit(db, {"type": "MEETING_SENT", "actor": actor["id"], "case_id": case_id,
+                            "note": f"Invite sent after consent \u2014 provider id {invite}"})
+    return {"status": "SENT", "invite_id": invite}
+
+
+# ---- Contract (F07): clause matrix ----
+@api.get("/cases/{case_id}/contract")
+async def get_contract(case_id: str):
+    return {"case_id": case_id, "prepared_by": "Grahmos Assist", "supplier": "Bison AV & Staging",
+            "clauses": [
+                {"clause": "Payment terms (Net-30)", "status": "acceptable"},
+                {"clause": "Certificate of Insurance", "status": "acceptable"},
+                {"clause": "Cancellation (72h)", "status": "deviation",
+                 "note": "Supplier proposes 5-day cancellation vs 72h policy."},
+                {"clause": "Data protection addendum", "status": "missing",
+                 "note": "Not present \u2014 required for student data exposure."},
+                {"clause": "Indemnification cap", "status": "legal_review",
+                 "note": "Cap below institutional threshold \u2014 route to Legal."},
+            ]}
+
+
+# ---- Order Handoff (F08): mock PO/ERP ----
+@api.post("/cases/{case_id}/order")
+async def order_handoff(case_id: str):
+    case = await db.cases.find_one({"id": case_id}, PROJ)
+    if not case:
+        raise HTTPException(404, "case not found")
+    actor, _ = await current_actor()
+    try:
+        K.validate_transition(case, "ORDERED")
+    except PolicyError as e:
+        raise HTTPException(422, str(e))
+    po = "PO-" + new_id("x").split("_")[1].upper()[:8]
+    await db.cases.update_one({"id": case_id}, {"$set": {"state": "ORDERED", "po_ref": po,
+                              "po_issuer_id": actor["id"]}})
+    await db.shipments.update_one({"case_id": case_id}, {"$set": {"status": "ORDERED"}}, upsert=True)
+    await append_audit(db, {"type": "ORDER_HANDOFF", "actor": actor["id"], "case_id": case_id,
+                            "note": f"Mock ERP PO {po} created; supplier confirmation sent (sandbox)",
+                            "idempotency_key": new_id("k"), "from": "APPROVED", "to": "ORDERED"})
+    return {"po_ref": po, "state": "ORDERED"}
+
+
+# ---- Logistics (F09) ----
+@api.post("/cases/{case_id}/ship/advance")
+async def ship_advance(case_id: str):
+    case = await db.cases.find_one({"id": case_id}, PROJ)
+    K.validate_transition(case, "IN_TRANSIT")
+    await db.cases.update_one({"id": case_id}, {"$set": {"state": "IN_TRANSIT"}})
+    await db.shipments.update_one({"case_id": case_id}, {"$set": {"status": "IN_TRANSIT"},
+        "$push": {"events": {"ts": now_iso(), "event": "Picked up by Grahmos Logistics (sim)"}}}, upsert=True)
+    await append_audit(db, {"type": "STATE_TRANSITION", "actor": "system", "case_id": case_id,
+                            "from": "ORDERED", "to": "IN_TRANSIT", "idempotency_key": new_id("k"),
+                            "note": "Logistics tracking active"})
+    return {"state": "IN_TRANSIT"}
+
+
+class Receive(BaseModel):
+    checklist_confirmed: bool = False
+
+
+@api.post("/cases/{case_id}/receive")
+async def receive(case_id: str, body: Receive):
+    if not body.checklist_confirmed:
+        raise HTTPException(422, "Receiving requires a confirmed checklist (receiving evidence).")
+    case = await db.cases.find_one({"id": case_id}, PROJ)
+    art = "art_receipt_" + case_id[-6:]
+    try:
+        K.validate_transition(case, "RECEIVED", evidence_refs=[art])
+    except PolicyError as e:
+        raise HTTPException(422, str(e))
+    await db.cases.update_one({"id": case_id}, {"$set": {"state": "RECEIVED"}})
+    await db.shipments.update_one({"case_id": case_id}, {"$set": {"status": "RECEIVED"}})
+    await db.artifacts.insert_one({"id": art, "case_id": case_id, "type": "receipt",
+        "source": "Receiving checklist", "actor": (await current_actor())[0]["id"],
+        "uri": f"artifact://{art}", "ts": now_iso(), "summary": "Signed receiving evidence."})
+    await append_audit(db, {"type": "STATE_TRANSITION", "actor": (await current_actor())[0]["id"],
+                            "case_id": case_id, "from": "IN_TRANSIT", "to": "RECEIVED",
+                            "idempotency_key": new_id("k"), "evidence_refs": [art],
+                            "note": "Delivery accepted with evidence"})
+    return {"state": "RECEIVED", "evidence": art}
+
+
+@api.post("/cases/{case_id}/close")
+async def close_case(case_id: str):
+    case = await db.cases.find_one({"id": case_id}, PROJ)
+    K.validate_transition(case, "CLOSED")
+    await db.cases.update_one({"id": case_id}, {"$set": {"state": "CLOSED"}})
+    await append_audit(db, {"type": "STATE_TRANSITION", "actor": "system", "case_id": case_id,
+                            "from": "RECEIVED", "to": "CLOSED", "idempotency_key": new_id("k"),
+                            "note": "Case closed \u2014 supplier score & institutional memory updated"})
+    await append_audit(db, {"type": "MEMORY_UPDATED", "actor": "Grahmos Assist", "case_id": case_id,
+                            "note": "Decision, evidence & supplier performance saved to Campus Memory"})
+    return {"state": "CLOSED"}
+
+
+# ---- Buy / Make / Repair ----
+@api.get("/cases/{case_id}/bmr")
+async def get_bmr(case_id: str):
+    case = await db.cases.find_one({"id": case_id}, {"_id": 0, "bmr": 1})
+    if not case or not case.get("bmr"):
+        raise HTTPException(404, "no buy/make/repair analysis for this case")
+    return case["bmr"]
+
+
+# ---- Override (reason + policy citation + expiry) ----
+class Override(BaseModel):
+    reason: str
+    policy_id: str
+    expiry: str
+
+
+@api.post("/cases/{case_id}/override")
+async def override_case(case_id: str, body: Override):
+    if not (body.reason and body.policy_id and body.expiry):
+        raise HTTPException(422, "Override requires reason, policy citation, and expiry.")
+    actor, _ = await current_actor()
+    rec = {"id": new_id("ovr"), "case_id": case_id, "actor": actor["id"], "reason": body.reason,
+           "policy_id": body.policy_id, "expiry": body.expiry, "ts": now_iso()}
+    await db.overrides.insert_one(dict(rec))
+    await append_audit(db, {"type": "OVERRIDE", "actor": actor["id"], "case_id": case_id,
+                            "reason": body.reason, "policy_id": body.policy_id, "expiry": body.expiry})
+    rec.pop("_id", None)
+    return rec
+
+
+# ---- Delegation (approval with expiry) ----
+class Delegate(BaseModel):
+    to_actor_id: str
+    expiry: str
+
+
+@api.post("/approvals/{approval_id}/delegate")
+async def delegate_approval(approval_id: str, body: Delegate):
+    appr = await db.approvals.find_one({"id": approval_id}, PROJ)
+    if not appr:
+        raise HTTPException(404, "approval not found")
+    actor, _ = await current_actor()
+    to = await db.actors.find_one({"id": body.to_actor_id}, PROJ)
+    if not to:
+        raise HTTPException(404, "delegate actor not found")
+    await db.approvals.update_one({"id": approval_id}, {"$set": {
+        "approver_id": body.to_actor_id, "delegated_from": appr["approver_id"],
+        "delegation_expiry": body.expiry}})
+    await append_audit(db, {"type": "APPROVAL_DELEGATED", "actor": actor["id"],
+                            "case_id": appr["case_id"], "gate": appr["gate"],
+                            "to": body.to_actor_id, "expiry": body.expiry})
+    return {"approval_id": approval_id, "delegated_to": to["name"], "expiry": body.expiry}
+
+
+# ---- Flow replay (idempotent) ----
+@api.post("/flows/{flow_id}/replay")
+async def replay_flow(flow_id: str):
+    f = await db.flows.find_one({"id": flow_id}, PROJ)
+    if not f:
+        raise HTTPException(404, "flow not found")
+    await db.flows.update_one({"id": flow_id}, {"$set": {"status": "OK", "last_run": now_iso()},
+                                                "$inc": {"runs": 1}})
+    await append_audit(db, {"type": "FLOW_REPLAYED", "actor": "system", "case_id": None,
+                            "note": f"{f['name']} ({flow_id}) replayed idempotently"})
+    return {"flow_id": flow_id, "status": "OK", "runs": f["runs"] + 1}
+
+
+# ---- Offline conflict resolve ----
+class ResolveConflict(BaseModel):
+    resolution: str  # "discard" | "refresh_and_apply"
+
+
+@api.post("/offline/resolve/{item_id}")
+async def resolve_conflict(item_id: str, body: ResolveConflict):
+    it = await db.outbox.find_one({"id": item_id}, PROJ)
+    if not it:
+        raise HTTPException(404, "outbox item not found")
+    status = "DISCARDED" if body.resolution == "discard" else "APPLIED"
+    await db.outbox.update_one({"id": item_id}, {"$set": {"status": status}})
+    await append_audit(db, {"type": "CONFLICT_RESOLVED", "actor": (await current_actor())[0]["id"],
+                            "case_id": it["case_id"], "resolution": body.resolution,
+                            "idempotency_key": it["idempotency_key"]})
+    return {"item_id": item_id, "status": status}
 
 
 # ==========================================================================

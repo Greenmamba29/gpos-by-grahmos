@@ -1,26 +1,14 @@
 [
   {
-    "content": "Phase 1 POC: kernel + AgentProvider proven",
+    "content": "Phase 3 Backend: Request Hub, case lifecycle, governance depth",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Backend — kernel, seed, agents, adapters, demo controls",
+    "content": "Phase 3 Frontend: Request Hub, Case Lifecycle panels, Flow Ops, delegation, offline resolve",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Frontend — branded shell + Demo Mode + 8 flywheel screens + operator workspace",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: Golden Demo Run + 5 seeded exceptions",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: End-to-End testing via testing_agent_v3 (100% pass)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 3 (optional/next): Live AI activation on key top-up, offline conflict UI, deeper lane flows, order/logistics/meeting surfaces, accessibility",
-    "status": "pending"
+    "content": "Phase 3: End-to-End testing via testing_agent_v3",
+    "status": "in_progress"
   }
 ]

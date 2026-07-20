@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { PageHeader, StatusBadge, Loading, fmtMoney, fmtDate, EmptyState } from "@/components/shared";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Inbox, HelpCircle, Search, Timer, AlertTriangle, Truck, GraduationCap, WifiOff } from "lucide-react";
 
@@ -73,7 +75,15 @@ function ViewTable({ kind, rows, nav }) {
   if (kind === "offline") return (
     <div className="space-y-2">{rows.map((o) => (
       <Card key={o.id} className="p-3.5"><div className="flex items-center justify-between"><div className="font-mono text-xs text-slate-800">{o.action} · {o.payload}</div><StatusBadge status={o.status} /></div>
-        <div className="mt-1 text-[11px] text-muted-foreground">idempotency: <span className="font-mono">{o.idempotency_key}</span> · policy {o.policy_version}</div></Card>))}</div>
+        <div className="mt-1 text-[11px] text-muted-foreground">idempotency: <span className="font-mono">{o.idempotency_key}</span> · policy {o.policy_version}</div>
+        {["PENDING", "CONFLICT_STALE_POLICY"].includes(o.status) && (
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" variant="outline" data-testid={`resolve-apply-${o.id}`}
+              onClick={async () => { await api.resolveConflict(o.id, "refresh_and_apply"); toast.success("Refreshed policy & applied"); window.location.reload(); }}>Refresh & apply</Button>
+            <Button size="sm" variant="outline" data-testid={`resolve-discard-${o.id}`}
+              onClick={async () => { await api.resolveConflict(o.id, "discard"); toast.success("Discarded"); window.location.reload(); }}>Discard</Button>
+          </div>)}
+      </Card>))}</div>
   );
   return null;
 }

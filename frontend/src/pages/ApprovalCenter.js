@@ -14,10 +14,11 @@ import { ShieldCheck, ShieldAlert, Clock, ArrowRight, Lock } from "lucide-react"
 const GATE_ORDER = ["FACILITIES", "FINANCE", "PROCUREMENT"];
 
 export default function ApprovalCenter() {
-  const { me, refreshMe } = useApp();
+  const { me, actors } = useApp();
   const [rows, setRows] = useState([]);
   const [sel, setSel] = useState(null);
   const [rationale, setRationale] = useState("");
+  const [delegateTo, setDelegateTo] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = async () => setRows(await api.approvals({ case_id: "case_founderday" }));
@@ -32,6 +33,17 @@ export default function ApprovalCenter() {
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Blocked by policy");
     } finally { setBusy(false); }
+  };
+
+  const doDelegate = async () => {
+    if (!delegateTo) { toast.error("Choose a delegate."); return; }
+    setBusy(true);
+    try {
+      const r = await api.delegate(sel.id, delegateTo, "2026-10-01");
+      toast.success(`${sel.gate} delegated to ${r.delegated_to} (expires ${r.expiry})`);
+      setSel(null); setDelegateTo(""); await load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Blocked"); }
+    finally { setBusy(false); }
   };
 
   const slaStyle = (s) => s === "AT_RISK" ? "border-l-red-500" : s === "PENDING" ? "border-l-amber-400" : s === "APPROVED" ? "border-l-[hsl(var(--g-teal-600))]" : "border-l-slate-300";
@@ -111,6 +123,21 @@ export default function ApprovalCenter() {
               <div className="flex gap-2">
                 <Button className="flex-1 bg-[hsl(var(--g-teal-600))] hover:bg-[hsl(var(--g-teal-700))]" disabled={busy} onClick={() => decide("APPROVED")} data-testid="approve-button">Approve</Button>
                 <Button variant="outline" className="flex-1" disabled={busy} onClick={() => decide("REJECTED")} data-testid="reject-button">Reject</Button>
+              </div>
+
+              <div className="rounded-lg border border-border p-3">
+                <div className="text-[11px] font-semibold text-slate-700">Delegate (with expiry)</div>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Reassign this gate to another authorized approver; delegation expires and is audited.</p>
+                <div className="mt-2 flex gap-2">
+                  <select value={delegateTo} onChange={(e) => setDelegateTo(e.target.value)} data-testid="delegate-select"
+                    className="h-8 flex-1 rounded-md border border-border bg-white px-2 text-[11px] text-slate-700">
+                    <option value="">Select delegate…</option>
+                    {actors.filter((a) => a.role === "approver" || a.role === "executive").map((a) => (
+                      <option key={a.id} value={a.id}>{a.name} · {a.title}</option>
+                    ))}
+                  </select>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={doDelegate} data-testid="delegate-button">Delegate</Button>
+                </div>
               </div>
             </div>
           </>)}

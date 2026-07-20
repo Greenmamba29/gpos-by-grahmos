@@ -54,4 +54,24 @@ export const api = {
   operatorView: (key) => get(`/operator/view/${key}`),
 
   runAgent: (agent, case_id) => post("/agents/run", { agent, case_id }),
+
+  // Phase 3
+  requestTemplates: () => get("/requests/templates"),
+  requestPreview: (body) => post("/requests/preview", body),
+  createRequest: (body) => post("/requests", body),
+  getMeeting: (id) => get(`/cases/${id}/meeting`),
+  proposeMeeting: (id) => post(`/cases/${id}/meeting/propose`, {}),
+  sendMeeting: (id, window_id, send_authorized) =>
+    post(`/cases/${id}/meeting/send`, { window_id, send_authorized }),
+  contract: (id) => get(`/cases/${id}/contract`),
+  order: (id) => post(`/cases/${id}/order`, {}),
+  shipAdvance: (id) => post(`/cases/${id}/ship/advance`, {}),
+  receive: (id, checklist_confirmed) => post(`/cases/${id}/receive`, { checklist_confirmed }),
+  closeCase: (id) => post(`/cases/${id}/close`, {}),
+  bmr: (id) => get(`/cases/${id}/bmr`),
+  override: (id, body) => post(`/cases/${id}/override`, body),
+  delegate: (approvalId, to_actor_id, expiry) =>
+    post(`/approvals/${approvalId}/delegate`, { to_actor_id, expiry }),
+  replayFlow: (id) => post(`/flows/${id}/replay`, {}),
+  resolveConflict: (itemId, resolution) => post(`/offline/resolve/${itemId}`, { resolution }),
 };

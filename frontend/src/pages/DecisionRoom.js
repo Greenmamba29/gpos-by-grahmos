@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Sparkles, ShieldCheck, AlertTriangle, GraduationCap, ScrollText, ArrowRight } from "lucide-react";
+import { CaseLifecycle } from "@/components/CaseLifecycle";
 
 export default function DecisionRoom() {
   const { caseId } = useParams();
@@ -135,6 +136,9 @@ export default function DecisionRoom() {
           </div>
         </Card>
       </div>
+
+      {/* Case lifecycle: meeting, contract, order & logistics, buy/make/repair, override */}
+      <CaseLifecycle caseObj={c} onChange={() => load(active)} />
 
       {/* Audit timeline */}
       <div className="mt-5">
