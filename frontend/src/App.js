@@ -1,54 +1,41 @@
-import { useEffect } from "react";
 import "@/App.css";
+import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+import { AppProvider } from "@/context/AppContext";
+import { Shell } from "@/components/Shell";
+import { Toaster } from "@/components/ui/sonner";
+import Today from "@/pages/Today";
+import DecisionRoom from "@/pages/DecisionRoom";
+import ApprovalCenter from "@/pages/ApprovalCenter";
+import Supplier360 from "@/pages/Supplier360";
+import CampusMemory from "@/pages/CampusMemory";
+import OperatorWorkspace from "@/pages/OperatorWorkspace";
+import StudentWorkBoard from "@/pages/StudentWorkBoard";
+import SkillsPassport from "@/pages/SkillsPassport";
+import ImpactCenter from "@/pages/ImpactCenter";
 
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AppProvider>
+        <BrowserRouter>
+          <Shell>
+            <Routes>
+              <Route path="/" element={<Today />} />
+              <Route path="/decisions" element={<DecisionRoom />} />
+              <Route path="/decisions/:caseId" element={<DecisionRoom />} />
+              <Route path="/approvals" element={<ApprovalCenter />} />
+              <Route path="/suppliers" element={<Supplier360 />} />
+              <Route path="/memory" element={<CampusMemory />} />
+              <Route path="/operator" element={<OperatorWorkspace />} />
+              <Route path="/students" element={<StudentWorkBoard />} />
+              <Route path="/passport" element={<SkillsPassport />} />
+              <Route path="/impact" element={<ImpactCenter />} />
+            </Routes>
+          </Shell>
+          <Toaster position="top-right" richColors />
+        </BrowserRouter>
+      </AppProvider>
     </div>
   );
 }
