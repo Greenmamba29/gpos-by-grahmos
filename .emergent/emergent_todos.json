@@ -8,7 +8,11 @@
     "status": "completed"
   },
   {
-    "content": "Phase 3: End-to-End testing via testing_agent_v3",
-    "status": "in_progress"
+    "content": "Phase 3: End-to-End testing via testing_agent_v3 (100% pass, 92/92 backend)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 4 (future/optional): Mobbin-grounded onboarding flows, supplier portal view, deeper IT/Classroom lane flows, Live AI activation on key top-up, accessibility audit",
+    "status": "pending"
   }
 ]
