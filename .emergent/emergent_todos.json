@@ -1,0 +1,34 @@
+[
+  {
+    "content": "Phase 1 POC: AgentProvider (Claude Sonnet 4.5 + GPT-5 fallback) returns schema-valid JSON for intake normalization + supplier discovery/quote normalization",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 1 POC: Deterministic GPOS kernel — state machine (idempotent transitions), SoD enforcement, approval thresholds, immutable audit hash-chain, evidence lineage, offline outbox+sync",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 1 POC: Run test_core.py until reliably green (all user stories + AT checks)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Backend — domain model, kernel modules, agents, simulated adapters F01-F12, seed Howard fixtures, Reset/Jump/Audit endpoints",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Frontend — branded shell + Demo Mode role switcher + 8 flywheel screens (Grahmos Today, Decision Room, Campus Memory, Approval Center, Supplier 360, Student Work Board, Skills Passport, Impact Command Center) + operator control plane",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Golden Demo Run (Founder Day) end-to-end + 5 seeded exceptions",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: All user stories covered; End-to-End testing via testing_agent_v3",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 3: Design polish to 100% guidelines, additional lane templates, offline conflict UI, accessibility, regression testing",
+    "status": "pending"
+  }
+]
