@@ -68,7 +68,7 @@ export function CaseLifecycle({ caseObj, onChange }) {
                   <div key={k} className={cn("rounded-lg border p-3", bmr[k].risk === "REVIEW_REQUIRED" ? "border-amber-300 bg-amber-50" : "border-border")}>
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900"><Icon className="h-3.5 w-3.5" />{label}</div>
                     <div className="mt-2 font-mono text-lg font-semibold tabular-nums">{fmtMoney(bmr[k].cost)}</div>
-                    <div className="text-[11px] text-muted-foreground">{bmr[k].time_days}d \u00b7 risk {bmr[k].risk.toLowerCase().replace(/_/g," ")}</div>
+                    <div className="text-[11px] text-muted-foreground">{bmr[k].time_days}d · risk {bmr[k].risk.toLowerCase().replace(/_/g," ")}</div>
                     {bmr[k].note && <div className="mt-1 text-[10px] text-amber-700">{bmr[k].note}</div>}
                   </div>
                 ))}

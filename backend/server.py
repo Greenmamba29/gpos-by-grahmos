@@ -35,7 +35,8 @@ PROJ = {"_id": 0}
 async def do_seed():
     cols = SEED.all_collections()
     for name in list(cols.keys()) + ["audit_events", "session", "outbox",
-                                      "flow_runs", "exceptions", "meetings", "overrides"]:
+                                      "flow_runs", "exceptions", "meetings", "overrides",
+                                      "onboarding"]:
         await db[name].delete_many({})
     for name, docs in cols.items():
         if docs:
@@ -1059,6 +1060,92 @@ async def resolve_conflict(item_id: str, body: ResolveConflict):
                             "case_id": it["case_id"], "resolution": body.resolution,
                             "idempotency_key": it["idempotency_key"]})
     return {"item_id": item_id, "status": status}
+
+
+# ==========================================================================
+# PHASE 4 \u2014 Onboarding (Mobbin-grounded), admin config, supplier portal
+# ==========================================================================
+class OnboardingSave(BaseModel):
+    track: str            # admin | requester | operator | student
+    current_step: int
+    data: Optional[dict] = None
+    completed: bool = False
+
+
+@api.get("/onboarding")
+async def get_onboarding(track: str):
+    doc = await db.onboarding.find_one({"track": track}, PROJ)
+    return doc or {"track": track, "current_step": 0, "data": {}, "completed": False}
+
+
+@api.post("/onboarding")
+async def save_onboarding(body: OnboardingSave):
+    doc = {"track": body.track, "current_step": body.current_step,
+           "data": body.data or {}, "completed": body.completed, "ts": now_iso()}
+    await db.onboarding.update_one({"track": body.track}, {"$set": doc}, upsert=True)
+    if body.completed:
+        await append_audit(db, {"type": "ONBOARDING_COMPLETED", "actor": "system",
+                                "case_id": None, "track": body.track})
+    return {"saved": True, **doc}
+
+
+@api.get("/onboarding/status")
+async def onboarding_status():
+    tracks = ["admin", "requester", "operator", "student"]
+    out = []
+    for t in tracks:
+        d = await db.onboarding.find_one({"track": t}, PROJ)
+        out.append({"track": t, "current_step": d["current_step"] if d else 0,
+                    "completed": d["completed"] if d else False})
+    return {"tracks": out}
+
+
+class InstitutionProfile(BaseModel):
+    timezone: Optional[str] = None
+    fiscal_year: Optional[str] = None
+    campuses: Optional[str] = None
+    launch_lanes: Optional[List[str]] = None
+
+
+@api.post("/admin/institution")
+async def update_institution(body: InstitutionProfile):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if updates:
+        await db.institutions.update_one({}, {"$set": updates})
+        await append_audit(db, {"type": "INSTITUTION_CONFIGURED", "actor": "u_executive",
+                                "case_id": None, "fields": list(updates.keys())})
+    return await db.institutions.find_one({}, PROJ)
+
+
+@api.get("/supplier/portal")
+async def supplier_portal(supplier_id: str = "sup_capital"):
+    sup = await db.suppliers.find_one({"id": supplier_id}, PROJ)
+    if not sup:
+        raise HTTPException(404, "supplier not found")
+    quotes = await db.quotes.find({"supplier_id": supplier_id}, PROJ).to_list(50)
+    engagements = []
+    for q in quotes:
+        case = await db.cases.find_one({"id": q["case_id"]},
+                                       {"_id": 0, "id": 1, "title": 1, "state": 1,
+                                        "selected_supplier_id": 1})
+        if case:
+            engagements.append({
+                "case": case, "quote": q,
+                "selected": case.get("selected_supplier_id") == supplier_id,
+                "quote_status": "Selected" if case.get("selected_supplier_id") == supplier_id
+                                else "Under review"})
+    # required documents / compliance (deterministic from certifications + unknowns)
+    docs = [
+        {"name": "Certificate of Insurance (COI)", "required": True,
+         "status": "on_file" if "COI-Verified" in sup["certifications"] else "missing"},
+        {"name": "W-9 Tax Form", "required": True, "status": "on_file"},
+        {"name": "Diversity / MBE certification", "required": False,
+         "status": "on_file" if sup.get("diverse") else "not_applicable"},
+        {"name": "Food-safety (ServSafe)", "required": "Catering" in sup["capabilities"],
+         "status": "on_file" if "ServSafe" in sup["certifications"] else "missing"},
+    ]
+    return {"supplier": sup, "engagements": engagements, "documents": docs,
+            "unknowns": sup.get("unknowns", [])}
 
 
 # ==========================================================================

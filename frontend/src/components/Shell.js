@@ -10,12 +10,13 @@ import { toast } from "sonner";
 import {
   LayoutDashboard, GitPullRequestArrow, Library, CheckCircle2, Building2,
   GraduationCap, Award, BarChart3, Table2, Wifi, WifiOff, Sparkles, Search,
-  PlusCircle, Workflow,
+  PlusCircle, Workflow, Rocket, Store,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 const NAV = [
   { to: "/", label: "Grahmos Today", icon: LayoutDashboard, group: "Home" },
+  { to: "/onboarding", label: "Get Started", icon: Rocket, group: "Home" },
   { to: "/request", label: "New Request", icon: PlusCircle, group: "Home" },
   { to: "/decisions", label: "Decision Room", icon: GitPullRequestArrow, group: "Coordinate" },
   { to: "/approvals", label: "Approval Center", icon: CheckCircle2, group: "Coordinate" },
@@ -25,6 +26,7 @@ const NAV = [
   { to: "/flows", label: "Flow Ops", icon: Workflow, group: "Coordinate" },
   { to: "/students", label: "Student Work Board", icon: GraduationCap, group: "Learn & Earn" },
   { to: "/passport", label: "Skills Passport", icon: Award, group: "Learn & Earn" },
+  { to: "/supplier-portal", label: "Supplier Portal", icon: Store, group: "Learn & Earn" },
   { to: "/impact", label: "Impact Command Center", icon: BarChart3, group: "Measure" },
 ];
 

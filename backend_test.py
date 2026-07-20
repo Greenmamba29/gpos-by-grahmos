@@ -872,6 +872,195 @@ def main():
     tester.test("GET /api/operator/view/my_queue", "GET", "operator/view/my_queue", 200)
     
     # ========================================================================
+    # 24. PHASE 4 — ONBOARDING (Mobbin-grounded)
+    # ========================================================================
+    print("\n[24] PHASE 4 — Onboarding")
+    print("-" * 80)
+    
+    # Reset to clear any previous onboarding progress
+    tester.test("POST /api/demo/reset (clear onboarding)", "POST", "demo/reset", 200)
+    
+    # Test onboarding status endpoint
+    success, status_resp = tester.test(
+        "GET /api/onboarding/status returns 4 tracks",
+        "GET",
+        "onboarding/status",
+        200,
+        critical=True
+    )
+    if success:
+        tracks = status_resp.get("tracks", [])
+        if len(tracks) == 4:
+            print(f"  {Colors.PASS} 4 tracks returned: {[t['track'] for t in tracks]}")
+            # Verify each track has current_step and completed
+            for t in tracks:
+                if "current_step" in t and "completed" in t:
+                    print(f"  {Colors.PASS} Track '{t['track']}': current_step={t['current_step']}, completed={t['completed']}")
+                else:
+                    print(f"  {Colors.FAIL} Track '{t['track']}' missing current_step or completed")
+        else:
+            print(f"  {Colors.FAIL} Expected 4 tracks, got {len(tracks)}")
+    
+    # Test save/resume functionality for admin track
+    success, save_resp = tester.test(
+        "POST /api/onboarding (admin track, step 3, save data)",
+        "POST",
+        "onboarding",
+        200,
+        {
+            "track": "admin",
+            "current_step": 3,
+            "data": {"outcomes": ["Savings", "Speed"]},
+            "completed": False
+        },
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.PASS} Admin track progress saved")
+    
+    # Test resume functionality
+    success, resume_resp = tester.test(
+        "GET /api/onboarding?track=admin (resume saved progress)",
+        "GET",
+        "onboarding?track=admin",
+        200,
+        critical=True
+    )
+    if success:
+        if resume_resp.get("current_step") == 3 and resume_resp.get("data", {}).get("outcomes") == ["Savings", "Speed"]:
+            print(f"  {Colors.PASS} Admin track resumed correctly: step=3, data preserved")
+        else:
+            print(f"  {Colors.FAIL} Resume failed: step={resume_resp.get('current_step')}, data={resume_resp.get('data')}")
+    
+    # Test complete track
+    success, complete_resp = tester.test(
+        "POST /api/onboarding (requester track, complete)",
+        "POST",
+        "onboarding",
+        200,
+        {
+            "track": "requester",
+            "current_step": 5,
+            "data": {"lane": "Event Procurement"},
+            "completed": True
+        },
+        critical=True
+    )
+    if success and complete_resp.get("completed") == True:
+        print(f"  {Colors.PASS} Requester track marked as completed")
+    
+    # Verify completion in status
+    success, status_resp2 = tester.test(
+        "GET /api/onboarding/status (verify completion)",
+        "GET",
+        "onboarding/status",
+        200
+    )
+    if success:
+        req_track = next((t for t in status_resp2.get("tracks", []) if t["track"] == "requester"), None)
+        if req_track and req_track.get("completed") == True:
+            print(f"  {Colors.PASS} Requester track shows completed=true in status")
+        else:
+            print(f"  {Colors.FAIL} Requester track not showing as completed")
+    
+    # ========================================================================
+    # 25. PHASE 4 — ADMIN CONFIG
+    # ========================================================================
+    print("\n[25] PHASE 4 — Admin Config")
+    print("-" * 80)
+    
+    success, update_resp = tester.test(
+        "POST /api/admin/institution (update config)",
+        "POST",
+        "admin/institution",
+        200,
+        {
+            "campuses": "Main Campus",
+            "fiscal_year": "FY2027",
+            "launch_lanes": ["Event Procurement"]
+        },
+        critical=True
+    )
+    if success:
+        print(f"  {Colors.PASS} Institution config updated")
+    
+    success, inst_resp = tester.test(
+        "GET /api/institution (verify updates)",
+        "GET",
+        "institution",
+        200,
+        critical=True
+    )
+    if success:
+        if (inst_resp.get("campuses") == "Main Campus" and 
+            inst_resp.get("fiscal_year") == "FY2027" and 
+            "Event Procurement" in inst_resp.get("launch_lanes", [])):
+            print(f"  {Colors.PASS} Institution config verified: campuses={inst_resp.get('campuses')}, fiscal_year={inst_resp.get('fiscal_year')}, launch_lanes={inst_resp.get('launch_lanes')}")
+        else:
+            print(f"  {Colors.FAIL} Institution config mismatch: {inst_resp}")
+    
+    # ========================================================================
+    # 26. PHASE 4 — SUPPLIER PORTAL
+    # ========================================================================
+    print("\n[26] PHASE 4 — Supplier Portal")
+    print("-" * 80)
+    
+    success, portal_resp = tester.test(
+        "GET /api/supplier/portal?supplier_id=sup_capital",
+        "GET",
+        "supplier/portal?supplier_id=sup_capital",
+        200,
+        critical=True
+    )
+    if success:
+        supplier = portal_resp.get("supplier", {})
+        engagements = portal_resp.get("engagements", [])
+        documents = portal_resp.get("documents", [])
+        
+        print(f"  {Colors.PASS} Supplier: {supplier.get('name')}")
+        print(f"  {Colors.PASS} Engagements: {len(engagements)} (expected >=1)")
+        
+        # Check for Founder Day engagement
+        founder_day = next((e for e in engagements if "Founder" in e.get("case", {}).get("title", "")), None)
+        if founder_day:
+            print(f"  {Colors.PASS} Founder Day engagement found")
+        else:
+            print(f"  {Colors.WARN} Founder Day engagement not found")
+        
+        # Check documents
+        print(f"  {Colors.PASS} Documents: {len(documents)}")
+        coi = next((d for d in documents if "COI" in d.get("name", "") or "Insurance" in d.get("name", "")), None)
+        w9 = next((d for d in documents if "W-9" in d.get("name", "")), None)
+        servsafe = next((d for d in documents if "ServSafe" in d.get("name", "") or "Food" in d.get("name", "")), None)
+        
+        if coi and coi.get("status") == "on_file":
+            print(f"  {Colors.PASS} COI status: on_file")
+        else:
+            print(f"  {Colors.FAIL} COI not found or wrong status")
+        
+        if w9 and w9.get("status") == "on_file":
+            print(f"  {Colors.PASS} W-9 status: on_file")
+        
+        if servsafe and servsafe.get("status") == "on_file":
+            print(f"  {Colors.PASS} ServSafe status: on_file")
+    
+    # Test supplier with missing COI
+    success, metro_resp = tester.test(
+        "GET /api/supplier/portal?supplier_id=sup_metro",
+        "GET",
+        "supplier/portal?supplier_id=sup_metro",
+        200,
+        critical=True
+    )
+    if success:
+        metro_docs = metro_resp.get("documents", [])
+        metro_coi = next((d for d in metro_docs if "COI" in d.get("name", "") or "Insurance" in d.get("name", "")), None)
+        if metro_coi and metro_coi.get("status") == "missing":
+            print(f"  {Colors.PASS} MetroCater COI status: missing (as expected)")
+        else:
+            print(f"  {Colors.FAIL} MetroCater COI status incorrect: {metro_coi.get('status') if metro_coi else 'not found'}")
+    
+    # ========================================================================
     # SUMMARY
     # ========================================================================
     print("\n" + "=" * 80)

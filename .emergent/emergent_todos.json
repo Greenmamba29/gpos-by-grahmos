@@ -1,18 +1,18 @@
 [
   {
-    "content": "Phase 4 Backend: onboarding progress persistence, admin config (institution + launch lanes), supplier portal endpoint",
-    "status": "in_progress"
+    "content": "Phase 4 Backend: onboarding persistence, admin config, supplier portal",
+    "status": "completed"
   },
   {
-    "content": "Phase 4 Frontend: Onboarding wizard (Admin 9 / Requester 5 / Operator 6 / Student 7 steps, resumable, value-first)",
-    "status": "pending"
+    "content": "Phase 4 Frontend: Onboarding wizard (4 tracks, resumable)",
+    "status": "completed"
   },
   {
-    "content": "Phase 4 Frontend: Supplier Portal view (assigned cases, required docs/COI, quote status)",
-    "status": "pending"
+    "content": "Phase 4 Frontend: Supplier Portal view",
+    "status": "completed"
   },
   {
     "content": "Phase 4: End-to-End testing via testing_agent_v3",
-    "status": "pending"
+    "status": "in_progress"
   }
 ]

@@ -74,4 +74,11 @@ export const api = {
     post(`/approvals/${approvalId}/delegate`, { to_actor_id, expiry }),
   replayFlow: (id) => post(`/flows/${id}/replay`, {}),
   resolveConflict: (itemId, resolution) => post(`/offline/resolve/${itemId}`, { resolution }),
+
+  // Phase 4
+  onboardingStatus: () => get("/onboarding/status"),
+  getOnboarding: (track) => get("/onboarding", { track }),
+  saveOnboarding: (body) => post("/onboarding", body),
+  updateInstitution: (body) => post("/admin/institution", body),
+  supplierPortal: (supplier_id) => get("/supplier/portal", supplier_id ? { supplier_id } : {}),
 };

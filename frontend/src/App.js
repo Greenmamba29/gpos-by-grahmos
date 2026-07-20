@@ -15,6 +15,8 @@ import SkillsPassport from "@/pages/SkillsPassport";
 import ImpactCenter from "@/pages/ImpactCenter";
 import RequestHub from "@/pages/RequestHub";
 import FlowOps from "@/pages/FlowOps";
+import Onboarding from "@/pages/Onboarding";
+import SupplierPortal from "@/pages/SupplierPortal";
 
 function App() {
   return (
@@ -25,6 +27,8 @@ function App() {
             <Routes>
               <Route path="/" element={<Today />} />
               <Route path="/request" element={<RequestHub />} />
+              <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/supplier-portal" element={<SupplierPortal />} />
               <Route path="/flows" element={<FlowOps />} />
               <Route path="/decisions" element={<DecisionRoom />} />
               <Route path="/decisions/:caseId" element={<DecisionRoom />} />
